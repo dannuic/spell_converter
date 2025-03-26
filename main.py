@@ -5,6 +5,8 @@ import sqlite3
 
 spells_file = 'spells_us.txt'
 spells_strings_file = 'spells_us_str.txt'
+spells_stacking_file = 'SpellStackingGroups.txt'
+strings_db_file = 'dbstr_us.txt'
 spells_db = 'spells.db'
 
 
@@ -259,14 +261,63 @@ if __name__ == '__main__':
     spells_strings_table = spells_strings_table.drop(['nop'], axis=1)
     spells_strings_table = spells_strings_table.convert_dtypes()
 
-    master_table = spells_table.join(spells_strings_table, on='id')
+    spells_stacking_names = {
+        'id': read_int,
+        'stacking_group': read_int,
+        'stacking_rank': read_int,
+        'stacking_type': read_int,
+        'nop': read_str,
+    }
+
+    spells_stacking_table = pd.read_csv(spells_stacking_file,
+                                        header=None,
+                                        skiprows=1,
+                                        encoding='utf-8',
+                                        delimiter='^',
+                                        names=[*spells_stacking_names],
+                                        converters=spells_stacking_names,
+                                        index_col='id',
+                                        nrows=None)
+
+    spells_stacking_table = spells_stacking_table.drop(['nop'], axis=1)
+    spells_stacking_table = spells_stacking_table.convert_dtypes()
+
+    strings_names = {
+        'desc_id': read_int,
+        'channel': read_int,
+        'description': read_str,
+        'unk': read_int,
+        'nop': read_str,
+    }
+
+    strings_table = pd.read_csv(strings_db_file,
+                                header=None,
+                                skiprows=0,
+                                encoding='utf-8',
+                                delimiter='^',
+                                names=[*strings_names],
+                                converters=strings_names,
+                                index_col='desc_id',
+                                nrows=None)
+
+    strings_table = strings_table.drop(['channel', 'unk', 'nop'], axis=1)
+    strings_table = strings_table.convert_dtypes()
+
+    master_table = (
+        spells_table
+        .join(spells_strings_table, on='id', how='left')
+        .join(spells_stacking_table, on='id', how='left')
+        .join(strings_table, on='desc_id', how='left')
+    )
     spells = master_table.drop(['spa_slots'], axis=1)
 
     spas = master_table[['spa_slots']].explode('spa_slots')
     spas = spas[spas['spa_slots'].notnull()].reset_index(level=0)
     spas = spas.join(pd.DataFrame(spas.pop('spa_slots').values.tolist())).set_index(['id', 'slot'])
 
-    os.remove(spells_db)
+    if os.path.isfile(spells_db):
+        os.remove(spells_db)
+
     with sqlite3.connect(spells_db) as connection:
         spells.to_sql(name='spells', con=connection, index=True)
         spas.to_sql(name='spas', con=connection, index=True)
