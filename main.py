@@ -1,7 +1,10 @@
 import os
+from typing import Any, Type, TypeVar
 
 import pandas as pd
 import sqlite3
+
+T = TypeVar('T', bound='Parent')
 
 spells_file = 'spells_us.txt'
 spells_strings_file = 'spells_us_str.txt'
@@ -10,32 +13,39 @@ strings_db_file = 'dbstr_us.txt'
 spells_db = 'spells.db'
 
 
-def read_str(val):
+def read_str(val: Any) -> str | None:
     if val:
         return str(val)
     return None
 
 
-def read_float(val):
+def read_float(val: Any) -> float | None:
     if val:
         return float(val)
     return None
 
 
-def read_int(val):
+def read_int(val: Any) -> int | None:
     if val:
         return int(read_float(val))
     return None
 
 
-def read_bool(val):
+def read_bool(val: Any) -> bool | None:
     if val:
         return bool(read_int(val))
     return None
 
 
 class SPA(object):
-    def __init__(self, slot, spa, base1, base2, calc, cap):
+    def __init__(self,
+                 slot: int,
+                 spa: int,
+                 base1: int,
+                 base2: int,
+                 calc: int,
+                 cap: int
+                 ) -> None:
         self.slot = slot
         self.spa = spa
         self.base1 = base1
@@ -47,7 +57,7 @@ class SPA(object):
         return '[{}, {}, {}, {}, {}, {}]'.format(self.slot, self.spa, self.base1, self.base2, self.calc, self.max)
 
     @classmethod
-    def parse(cls, val):
+    def parse(cls: Type[T], val: Any) -> T | None:
         def parse_spa(spa_def):
             vals = [read_int(d) for d in spa_def.split('|')]
             return cls(vals[0], vals[1], vals[2], vals[3], vals[4], vals[5])
@@ -57,8 +67,7 @@ class SPA(object):
         return [vars(parse_spa(spa_def)) for spa_def in str(val).split('$')]
 
 
-# Press the green button in the gutter to run the script.
-if __name__ == '__main__':
+def read_spells() -> pd.DataFrame:
     spells_names = {
         'id': read_int, # 0 SPELLINDEX
         'name': read_str, # 1 SPELLNAME
@@ -227,18 +236,19 @@ if __name__ == '__main__':
         'spa_slots': SPA.parse, # 164 SPA_SLOTS
     }
 
-    spells_table = pd.read_csv(spells_file,
-                               header=None,
-                               encoding='utf-8',
-                               delimiter='^',
-                               names=[*spells_names],
-                               converters=spells_names,
-                               index_col='id',
-                               nrows=None)
+    return pd.read_csv(spells_file,
+                       header=None,
+                       encoding='utf-8',
+                       delimiter='^',
+                       names=[*spells_names],
+                       converters=spells_names,
+                       index_col='id',
+                       nrows=None
+                       ).convert_dtypes()
 
-    spells_table = spells_table.convert_dtypes()
 
-    spells_strings_names = {
+def read_spell_strings() -> pd.DataFrame:
+    columns = {
         'id': read_int,
         'caster_me': read_str,
         'caster_other': read_str,
@@ -248,20 +258,41 @@ if __name__ == '__main__':
         'nop': read_str,
     }
 
-    spells_strings_table = pd.read_csv(spells_strings_file,
-                                       header=None,
-                                       skiprows=1,
-                                       encoding='utf-8',
-                                       delimiter='^',
-                                       names=[*spells_strings_names],
-                                       converters=spells_strings_names,
-                                       index_col='id',
-                                       nrows=None)
+    return pd.read_csv(spells_strings_file,
+                       header=None,
+                       skiprows=1,
+                       encoding='utf-8',
+                       delimiter='^',
+                       names=[*columns],
+                       converters=columns,
+                       index_col='id',
+                       nrows=None
+                       ).drop(['nop'], axis=1).convert_dtypes()
 
-    spells_strings_table = spells_strings_table.drop(['nop'], axis=1)
-    spells_strings_table = spells_strings_table.convert_dtypes()
 
-    spells_stacking_names = {
+def read_strings() -> pd.DataFrame:
+    columns = {
+        'id': read_int,
+        'type': read_int,
+        'text': read_str,
+        'unk': read_int,
+        'nop': read_str,
+    }
+
+    return pd.read_csv(strings_db_file,
+                       header=None,
+                       skiprows=0,
+                       encoding='utf-8',
+                       delimiter='^',
+                       names=[*columns],
+                       converters=columns,
+                       index_col='id',
+                       nrows=None
+                       ).drop(['unk', 'nop'], axis=1).convert_dtypes()
+
+
+def read_spell_stacking(strings: pd.DataFrame) -> pd.DataFrame:
+    columns = {
         'id': read_int,
         'stacking_group': read_int,
         'stacking_rank': read_int,
@@ -269,46 +300,57 @@ if __name__ == '__main__':
         'nop': read_str,
     }
 
-    spells_stacking_table = pd.read_csv(spells_stacking_file,
-                                        header=None,
-                                        skiprows=1,
-                                        encoding='utf-8',
-                                        delimiter='^',
-                                        names=[*spells_stacking_names],
-                                        converters=spells_stacking_names,
-                                        index_col='id',
-                                        nrows=None)
+    return pd.read_csv(spells_stacking_file,
+                       header=None,
+                       skiprows=1,
+                       encoding='utf-8',
+                       delimiter='^',
+                       names=[*columns],
+                       converters=columns,
+                       index_col='id',
+                       nrows=None
+                       ).drop(['nop'], axis=1).convert_dtypes().join(
+        read_stacking_names(strings), on='stacking_group', how='left'
+    )
 
-    spells_stacking_table = spells_stacking_table.drop(['nop'], axis=1)
-    spells_stacking_table = spells_stacking_table.convert_dtypes()
 
-    strings_names = {
-        'desc_id': read_int,
-        'channel': read_int,
-        'description': read_str,
-        'unk': read_int,
-        'nop': read_str,
-    }
+def read_stacking_names(strings: pd.DataFrame) -> pd.DataFrame:
+    stacking_names = (
+        strings[strings['type'] == 40][['text']]
+        .rename(columns={'text': 'stacking_name'})
+    )
 
-    strings_table = pd.read_csv(strings_db_file,
-                                header=None,
-                                skiprows=0,
-                                encoding='utf-8',
-                                delimiter='^',
-                                names=[*strings_names],
-                                converters=strings_names,
-                                index_col='desc_id',
-                                nrows=None)
+    stacking_names.index.name = 'stacking_group'
 
-    strings_table = strings_table.drop(['channel', 'unk', 'nop'], axis=1)
-    strings_table = strings_table.convert_dtypes()
+    return stacking_names
+
+
+def read_spell_descriptions(strings: pd.DataFrame) -> pd.DataFrame:
+    spell_descriptions = (
+        strings[strings['type'] == 6][['text']]
+        .rename(columns = {'text': 'description'})
+    )
+
+    spell_descriptions.index.name = 'desc_id'
+
+    return spell_descriptions
+
+
+# Press the green button in the gutter to run the script.
+def main() -> None:
+    spells = read_spells()
+    spell_strings = read_spell_strings()
+    strings = read_strings()
+    spell_stacking = read_spell_stacking(strings)
+    spell_descriptions = read_spell_descriptions(strings)
 
     master_table = (
-        spells_table
-        .join(spells_strings_table, on='id', how='left')
-        .join(spells_stacking_table, on='id', how='left')
-        .join(strings_table, on='desc_id', how='left')
+        spells
+        .join(spell_strings, on='id', how='left')
+        .join(spell_stacking, on='id', how='left')
+        .join(spell_descriptions, on='desc_id', how='left')
     )
+
     spells = master_table.drop(['spa_slots'], axis=1)
 
     spas = master_table[['spa_slots']].explode('spa_slots')
@@ -321,3 +363,7 @@ if __name__ == '__main__':
     with sqlite3.connect(spells_db) as connection:
         spells.to_sql(name='spells', con=connection, index=True)
         spas.to_sql(name='spas', con=connection, index=True)
+
+
+if __name__ == '__main__':
+    main()
