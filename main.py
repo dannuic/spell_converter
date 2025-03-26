@@ -4,6 +4,8 @@ from typing import Any, Type, TypeVar
 import pandas as pd
 import sqlite3
 
+import enums
+
 T = TypeVar('T', bound='Parent')
 
 spells_file = 'spells_us.txt'
@@ -230,7 +232,7 @@ def read_spells() -> pd.DataFrame:
         'only_fast_regen': read_bool, # 158 ONLY_DURING_FAST_REGEN
         'beta': read_bool, # 159 IS_BETA_ONLY
         'subgroup': read_int, # 160 SPELL_SUBGROUP
-        'no_overwrite': read_bool, # 161 NO_OVERWRITE
+        'no_overwrite': read_int, # 161 NO_OVERWRITE
         'image_number': read_int, # 162 IMAGENUMBER
         'mem_image_number': read_int, # 163 MEMIMAGENUMBER
         'spa_slots': SPA.parse, # 164 SPA_SLOTS
@@ -244,7 +246,33 @@ def read_spells() -> pd.DataFrame:
                        converters=spells_names,
                        index_col='id',
                        nrows=None
-                       ).convert_dtypes()
+                       ).convert_dtypes(
+    ).merge(
+        enums.categories.rename(columns={'category_name': 'primary_category_name'}),
+        left_on='primary_category',
+        right_index=True,
+        how='left',
+    ).merge(
+        enums.categories.rename(columns={'category_name': 'secondary_category1_name'}),
+        left_on='secondary_category1',
+        right_index=True,
+        how='left',
+    ).merge(
+        enums.categories.rename(columns={'category_name': 'secondary_category2_name'}),
+        left_on='secondary_category2',
+        right_index=True,
+        how='left',
+    ).join(
+        enums.beneficial_types, on='beneficial', how='left'
+    ).join(
+        enums.no_overwrite, on='no_overwrite', how='left'
+    ).join(
+        enums.recourse_types, on='recourse_type', how='left'
+    ).join(
+        enums.resist_types, on='resist_type', how='left'
+    ).join(
+        enums.target_types, on='target_type', how='left'
+    )
 
 
 def read_spell_strings() -> pd.DataFrame:
@@ -311,7 +339,7 @@ def read_spell_stacking(strings: pd.DataFrame) -> pd.DataFrame:
                        nrows=None
                        ).drop(['nop'], axis=1).convert_dtypes().join(
         read_stacking_names(strings), on='stacking_group', how='left'
-    )
+    ).join(enums.stacking_rules, on='stacking_type', how='left')
 
 
 def read_stacking_names(strings: pd.DataFrame) -> pd.DataFrame:
@@ -355,7 +383,13 @@ def main() -> None:
 
     spas = master_table[['spa_slots']].explode('spa_slots')
     spas = spas[spas['spa_slots'].notnull()].reset_index(level=0)
-    spas = spas.join(pd.DataFrame(spas.pop('spa_slots').values.tolist())).set_index(['id', 'slot'])
+    spas = (
+        spas
+        .join(pd.DataFrame(spas.pop('spa_slots').values.tolist()))
+        .join(enums.spas, on='spa', how='left')
+        .join(enums.value_calcs, on='calc', how='left')
+        .set_index(['id', 'slot'])
+    )
 
     if os.path.isfile(spells_db):
         os.remove(spells_db)
