@@ -1,5 +1,7 @@
 import os
 from typing import Any, Type, TypeVar
+from argparse import ArgumentParser
+from glob import glob
 
 import pandas as pd
 import sqlite3
@@ -10,9 +12,8 @@ T = TypeVar('T', bound='Parent')
 
 spells_file = 'spells_us.txt'
 spells_strings_file = 'spells_us_str.txt'
-spells_stacking_file = 'SpellStackingGroups.txt'
+spells_stacking_file = 'Resources/SpellStackingGroups.txt'
 strings_db_file = 'dbstr_us.txt'
-spells_db = 'spells.db'
 
 
 def read_str(val: Any) -> str | None:
@@ -69,7 +70,7 @@ class SPA(object):
         return [vars(parse_spa(spa_def)) for spa_def in str(val).split('$')]
 
 
-def read_spells() -> pd.DataFrame:
+def read_spells(file: str) -> pd.DataFrame:
     spells_names = {
         'id': read_int, # 0 SPELLINDEX
         'name': read_str, # 1 SPELLNAME
@@ -238,7 +239,7 @@ def read_spells() -> pd.DataFrame:
         'spa_slots': SPA.parse, # 164 SPA_SLOTS
     }
 
-    return pd.read_csv(spells_file,
+    return pd.read_csv(file,
                        header=None,
                        encoding='utf-8',
                        delimiter='^',
@@ -275,7 +276,7 @@ def read_spells() -> pd.DataFrame:
     )
 
 
-def read_spell_strings() -> pd.DataFrame:
+def read_spell_strings(file: str) -> pd.DataFrame:
     columns = {
         'id': read_int,
         'caster_me': read_str,
@@ -286,7 +287,7 @@ def read_spell_strings() -> pd.DataFrame:
         'nop': read_str,
     }
 
-    return pd.read_csv(spells_strings_file,
+    return pd.read_csv(file,
                        header=None,
                        skiprows=1,
                        encoding='utf-8',
@@ -298,7 +299,7 @@ def read_spell_strings() -> pd.DataFrame:
                        ).drop(['nop'], axis=1).convert_dtypes()
 
 
-def read_strings() -> pd.DataFrame:
+def read_strings(file: str) -> pd.DataFrame:
     columns = {
         'id': read_int,
         'type': read_int,
@@ -307,7 +308,7 @@ def read_strings() -> pd.DataFrame:
         'nop': read_str,
     }
 
-    return pd.read_csv(strings_db_file,
+    return pd.read_csv(file,
                        header=None,
                        skiprows=0,
                        encoding='utf-8',
@@ -319,7 +320,7 @@ def read_strings() -> pd.DataFrame:
                        ).drop(['unk', 'nop'], axis=1).convert_dtypes()
 
 
-def read_spell_stacking(strings: pd.DataFrame) -> pd.DataFrame:
+def read_spell_stacking(file: str, strings: pd.DataFrame) -> pd.DataFrame:
     columns = {
         'id': read_int,
         'stacking_group': read_int,
@@ -328,7 +329,7 @@ def read_spell_stacking(strings: pd.DataFrame) -> pd.DataFrame:
         'nop': read_str,
     }
 
-    return pd.read_csv(spells_stacking_file,
+    return pd.read_csv(file,
                        header=None,
                        skiprows=1,
                        encoding='utf-8',
@@ -364,12 +365,13 @@ def read_spell_descriptions(strings: pd.DataFrame) -> pd.DataFrame:
     return spell_descriptions
 
 
-# Press the green button in the gutter to run the script.
-def main() -> None:
-    spells = read_spells()
-    spell_strings = read_spell_strings()
-    strings = read_strings()
-    spell_stacking = read_spell_stacking(strings)
+def base_tables(eq_dir: str) -> tuple[pd.DataFrame, pd.DataFrame]:
+    from os.path import join
+
+    spells = read_spells(join(eq_dir, spells_file))
+    spell_strings = read_spell_strings(join(eq_dir, spells_strings_file))
+    strings = read_strings(join(eq_dir, strings_db_file))
+    spell_stacking = read_spell_stacking(join(eq_dir, spells_stacking_file), strings)
     spell_descriptions = read_spell_descriptions(strings)
 
     master_table = (
@@ -391,13 +393,78 @@ def main() -> None:
         .set_index(['id', 'slot'])
     )
 
-    if os.path.isfile(spells_db):
-        os.remove(spells_db)
+    return spells, spas
 
-    with sqlite3.connect(spells_db) as connection:
-        spells.to_sql(name='spells', con=connection, index=True)
-        spas.to_sql(name='spas', con=connection, index=True)
+
+def character_table(character_file: str, name_server: tuple[str, str]) -> pd.DataFrame:
+    columns = {
+        'level': read_int,
+        'name': read_str,
+    }
+
+    return pd.read_csv(character_file,
+                       header=None,
+                       skiprows=0,
+                       encoding='utf-8',
+                       delimiter='\t',
+                       names=[*columns],
+                       converters=columns,
+                       nrows=None).convert_dtypes().assign(
+        character=name_server[0], server=name_server[1],
+    )[['character', 'server', 'level', 'name']]
+
+
+def character_tables(eq_dir: str, suffix: str) -> list[tuple[pd.DataFrame, tuple[str, str]]]:
+    from os.path import join
+    import re
+
+    return [(character_table(join(eq_dir, m.string), m.groups()), m.groups()) for m in
+     [re.search(rf'(.*)_(.*)-{suffix}.txt', f) for f in os.listdir(eq_dir)]
+     if m is not None]
+
+
+# Press the green button in the gutter to run the script.
+def main(eq_dir: str,
+         spells_db: str,
+         do_base: bool = False,
+         do_character: bool = False) -> None:
+    if do_base:
+        spells, spas = base_tables(eq_dir)
+
+        with sqlite3.connect(spells_db) as connection:
+            connection.execute('DROP TABLE IF EXISTS spells')
+            spells.to_sql(name='spells', con=connection, index=True)
+
+            connection.execute('DROP TABLE IF EXISTS spas')
+            spas.to_sql(name='spas', con=connection, index=True)
+
+    if do_character:
+        with sqlite3.connect(spells_db) as connection:
+            connection.execute(
+                'CREATE TABLE IF NOT EXISTS spellbooks(character TEXT, server TEXT, level INTEGER, name TEXT)')
+
+            for table, (name, server) in character_tables(eq_dir, 'Spellbook'):
+                connection.execute(f'DELETE FROM spellbooks WHERE character=? AND server=?', (name, server))
+                table.to_sql(name='spellbooks', con=connection, if_exists='append', index=False)
+
+            connection.execute(
+                'CREATE TABLE IF NOT EXISTS missing_spells(character TEXT, server TEXT, level INTEGER, name TEXT)')
+
+            for table, (name, server) in character_tables(eq_dir, 'MissingSpells'):
+                connection.execute(f'DELETE FROM missing_spells WHERE character=? AND server=?', (name, server))
+                table.to_sql(name='missing_spells', con=connection, if_exists='append', index=False)
 
 
 if __name__ == '__main__':
-    main()
+    parser = ArgumentParser()
+    parser.add_argument('eq_dir',
+                        help='everquest directory where files necessary for parsing live')
+    parser.add_argument('-b', '--base-tables', dest='base_tables', action='store_true',
+                        help='recreate the base spells and spas tables in the db')
+    parser.add_argument('-c', '--character-tables', dest='character_tables', action='store_true',
+                        help='parse character spellbook outputs and add tables in the result')
+    parser.add_argument('-o', '--output', dest='output', default='spells.db',
+                        help='sqlite db file to write results to')
+
+    args = parser.parse_args()
+    main(args.eq_dir, args.output, do_base=args.base_tables, do_character=args.character_tables)
