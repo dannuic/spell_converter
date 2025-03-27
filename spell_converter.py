@@ -1,7 +1,6 @@
 import os
 from typing import Any, Type, TypeVar
 from argparse import ArgumentParser
-from glob import glob
 
 import pandas as pd
 import sqlite3
@@ -464,7 +463,7 @@ if __name__ == '__main__':
     parser.add_argument('-c', '--character-tables', dest='character_tables', action='store_true',
                         help='parse character spellbook outputs and add tables in the result')
     parser.add_argument('-o', '--output', dest='output', default='spells.db',
-                        help='sqlite db file to write results to')
+                        help='sqlite db file to write results to (default spells.db)')
 
     args = parser.parse_args()
     main(args.eq_dir, args.output, do_base=args.base_tables, do_character=args.character_tables)
