@@ -3,6 +3,7 @@ from .categories import categories
 from .no_overwrite import no_overwrite
 from .recourse_types import recourse_types
 from .resist_types import resist_types
+from .skills import skills
 from .spas import spas
 from .stacking_rules import stacking_rules
 from .target_types import target_types
