@@ -235,7 +235,8 @@ def read_spells(file: str) -> pd.DataFrame:
         'no_overwrite': read_int, # 161 NO_OVERWRITE
         'image_number': read_int, # 162 IMAGENUMBER
         'mem_image_number': read_int, # 163 MEMIMAGENUMBER
-        'spa_slots': SPA.parse, # 164 SPA_SLOTS
+        'spell_line': read_int, # 164 SPELLLINE
+        'spa_slots': SPA.parse, # 165 SPA_SLOTS
     }
 
     return pd.read_csv(file,
@@ -272,6 +273,8 @@ def read_spells(file: str) -> pd.DataFrame:
         enums.resist_types, on='resist_type', how='left'
     ).join(
         enums.target_types, on='target_type', how='left'
+    ).join(
+        enums.skills, on='skill', how='left'
     )
 
 
