@@ -52,7 +52,7 @@ class SPA(object):
         self.spa = spa
         self.base1 = base1
         self.base2 = base2
-        self.calc = calc
+        self.calc = calc if calc < 10000 else 100
         self.max = cap
 
     def __str__(self):
@@ -61,7 +61,7 @@ class SPA(object):
     @classmethod
     def parse(cls: Type[T], val: Any) -> T | None:
         def parse_spa(spa_def):
-            vals = [read_int(d) for d in spa_def.split('|')]
+            vals = [int(d) for d in spa_def.split('|')]
             return cls(vals[0], vals[1], vals[2], vals[3], vals[4], vals[5])
 
         if not val:
